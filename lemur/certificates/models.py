@@ -23,6 +23,7 @@ from sqlalchemy import (
     Text,
     Boolean,
     Index,
+    LargeBinary,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
@@ -128,7 +129,17 @@ class Certificate(db.Model):
     private_key = Column(Vault)
 
     issuer = Column(String(128))
-    serial = Column(String(128))
+    # cfssl: revoke
+    # serial = Column(String(128))
+    serial_number = Column(String(128))
+    authority_key_identifier = Column(String(128))
+    ca_label = Column(LargeBinary, nullable=True)
+    reason = Column(Integer, default=0)
+    expiry = Column(ArrowType, nullable=True)
+    revoked_at = Column(ArrowType, nullable=True)
+    pem = Column(LargeBinary, nullable=True)
+    # cfssl: revoke
+
     cn = Column(String(128))
     deleted = Column(Boolean, index=True, default=False)
     dns_provider_id = Column(
@@ -201,7 +212,7 @@ class Certificate(db.Model):
         self.san = defaults.san(cert)
         self.not_before = defaults.not_before(cert)
         self.not_after = defaults.not_after(cert)
-        self.serial = defaults.serial(cert)
+        self.serial_number = defaults.serial(cert)
 
         # when destinations are appended they require a valid name.
         if kwargs.get("name"):
@@ -267,6 +278,10 @@ class Certificate(db.Model):
     def parsed_cert(self):
         assert self.body, "Certificate body not set"
         return utils.parse_certificate(self.body)
+
+    @property
+    def serial(self):
+        return self.serial_number
 
     @property
     def active(self):
