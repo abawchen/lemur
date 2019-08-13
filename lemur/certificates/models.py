@@ -24,6 +24,8 @@ from sqlalchemy import (
     Boolean,
     Index,
     LargeBinary,
+    ForeignKeyConstraint,
+    UniqueConstraint,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
@@ -112,6 +114,11 @@ class Certificate(db.Model):
             postgresql_ops={"name": "gin_trgm_ops"},
             postgresql_using="gin",
         ),
+        UniqueConstraint(
+            'serial_number',
+            'authority_key_identifier',
+            name='uc_sn_aki'
+        )
     )
     id = Column(Integer, primary_key=True)
     ix = Index(
@@ -485,6 +492,20 @@ def update_destinations(target, value, initiator):
         },
     )
 
+
+class OCSPResponse(db.Model):
+    __tablename__ = "ocsp_responses"
+    serial_number = Column(String(128), primary_key=True)
+    authority_key_identifier = Column(String(128), primary_key=True)
+    body = Column(Text(), nullable=False)
+    expiry = Column(ArrowType, nullable=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            [serial_number, authority_key_identifier],
+            [Certificate.serial_number, Certificate.authority_key_identifier]
+        ),
+        {}
+    )
 
 @event.listens_for(Certificate.replaces, "append")
 def update_replacement(target, value, initiator):
