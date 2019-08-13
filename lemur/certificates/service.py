@@ -208,7 +208,6 @@ def mint(**kwargs):
 
     """
     authority = kwargs["authority"]
-
     issuer = plugins.get(authority.plugin_name)
 
     # allow the CSR to be specified by the user
@@ -296,6 +295,11 @@ def create(**kwargs):
         kwargs["creator"].pending_certificates.append(cert)
 
     cert.authority = kwargs["authority"]
+
+    # begin of: cfssl
+    cert.not_before = kwargs["validity_start"]
+    cert.not_after = kwargs["validity_end"]
+    # end of: cfssl
 
     database.commit()
 
