@@ -23,6 +23,9 @@ from sqlalchemy import (
     Text,
     Boolean,
     Index,
+    LargeBinary,
+    ForeignKeyConstraint,
+    UniqueConstraint,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
@@ -31,6 +34,7 @@ from sqlalchemy_utils.types.arrow import ArrowType
 from werkzeug.utils import cached_property
 
 from lemur.common import defaults, utils, validators
+from lemur.common.utils import get_authority_key
 from lemur.constants import SUCCESS_METRIC_STATUS, FAILURE_METRIC_STATUS
 from lemur.database import db
 from lemur.domains.models import Domain
@@ -111,6 +115,11 @@ class Certificate(db.Model):
             postgresql_ops={"name": "gin_trgm_ops"},
             postgresql_using="gin",
         ),
+        UniqueConstraint(
+            'serial_number',
+            'authority_key_identifier',
+            name='uc_sn_aki'
+        )
     )
     id = Column(Integer, primary_key=True)
     ix = Index(
@@ -128,7 +137,17 @@ class Certificate(db.Model):
     private_key = Column(Vault)
 
     issuer = Column(String(128))
-    serial = Column(String(128))
+    # begin of: cfssl - revoke
+    # serial = Column(String(128))
+    serial_number = Column(LargeBinary)
+    authority_key_identifier = Column(LargeBinary)
+    ca_label = Column(LargeBinary, nullable=True, default="".encode("utf-8"))
+    reason = Column(Integer, default=0)
+    expiry = Column(ArrowType, nullable=True)
+    revoked_at = Column(ArrowType, nullable=True, default=arrow.get("0001-01-01"))
+    pem = Column(LargeBinary, nullable=True, default="".encode("utf-8"))
+    # end of: cfssl-revoke
+
     cn = Column(String(128))
     deleted = Column(Boolean, index=True, default=False)
     dns_provider_id = Column(
@@ -142,7 +161,7 @@ class Certificate(db.Model):
     date_created = Column(ArrowType, PassiveDefault(func.now()), nullable=False)
 
     signing_algorithm = Column(String(128))
-    status = Column(String(128))
+    status = Column(String(128), default='good')
     bits = Column(Integer())
     san = Column(String(1024))  # TODO this should be migrated to boolean
 
@@ -201,7 +220,7 @@ class Certificate(db.Model):
         self.san = defaults.san(cert)
         self.not_before = defaults.not_before(cert)
         self.not_after = defaults.not_after(cert)
-        self.serial = defaults.serial(cert)
+        self.serial_number = str(defaults.serial(cert)).encode("utf-8")
 
         # when destinations are appended they require a valid name.
         if kwargs.get("name"):
@@ -248,6 +267,15 @@ class Certificate(db.Model):
         # For user-facing API calls, validation should also be done in schema validators.
         self.check_integrity()
 
+        # begin of: cfssl
+        try:
+            self.authority_key_identifier = get_authority_key(self.body).encode("utf-8")
+        except:
+            pass
+
+        self.pem = self.body.encode("utf-8")
+        # end of cfssl
+
     def check_integrity(self):
         """
         Integrity checks: Does the cert have a valid chain and matching private key?
@@ -267,6 +295,10 @@ class Certificate(db.Model):
     def parsed_cert(self):
         assert self.body, "Certificate body not set"
         return utils.parse_certificate(self.body)
+
+    @property
+    def serial(self):
+        return self.serial_number.decode("utf-8")
 
     @property
     def active(self):
@@ -470,6 +502,20 @@ def update_destinations(target, value, initiator):
         },
     )
 
+
+class OCSPResponse(db.Model):
+    __tablename__ = "ocsp_responses"
+    serial_number = Column(LargeBinary, primary_key=True)
+    authority_key_identifier = Column(LargeBinary, primary_key=True)
+    body = Column(LargeBinary, nullable=False)
+    expiry = Column(ArrowType, nullable=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            [serial_number, authority_key_identifier],
+            [Certificate.serial_number, Certificate.authority_key_identifier]
+        ),
+        {}
+    )
 
 @event.listens_for(Certificate.replaces, "append")
 def update_replacement(target, value, initiator):
