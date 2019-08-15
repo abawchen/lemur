@@ -8,6 +8,7 @@
 .. moduleauthor:: Charles Hendrie <chad.hendrie@tr.com>
 """
 
+import arrow
 import json
 import requests
 import base64
@@ -22,6 +23,8 @@ from lemur.plugins.bases import IssuerPlugin
 from lemur.plugins import lemur_cfssl as cfssl
 from lemur.extensions import metrics
 
+from lemur import database
+from lemur.certificates.models import Certificate
 
 class CfsslIssuerPlugin(IssuerPlugin):
     title = "CFSSL"
@@ -52,7 +55,6 @@ class CfsslIssuerPlugin(IssuerPlugin):
 
         data = {"certificate_request": csr}
         data = json.dumps(data)
-
         try:
             hex_key = current_app.config.get("CFSSL_KEY")
             key = bytes.fromhex(hex_key)
@@ -104,6 +106,23 @@ class CfsslIssuerPlugin(IssuerPlugin):
 
     def revoke_certificate(self, certificate, comments):
         """Revoke a CFSSL certificate."""
+        # XXX: Update database directly
+        try:
+            certificate.status = 'revoked'
+            certificate.reason = 4
+            certificate.revoked_at = arrow.utcnow()
+            database.commit()
+        except Exception as e:
+            metrics.send("cfssl_revoke_certificate_failure", "counter", 1)
+            raise e
+        metrics.send("cfssl_revoke_certificate_success", "counter", 1)
+        return {
+            "success": True,
+            "result": {},
+            "errors": [],
+            "messages": []
+        }
+        """
         base_url = current_app.config.get("CFSSL_URL")
         create_url = "{0}/api/v1/cfssl/revoke".format(base_url)
         data = (
@@ -122,3 +141,4 @@ class CfsslIssuerPlugin(IssuerPlugin):
             raise Exception("Error revoking cert. Please check your CFSSL API server")
         metrics.send("cfssl_revoke_certificate_success", "counter", 1)
         return response.json()
+        """
