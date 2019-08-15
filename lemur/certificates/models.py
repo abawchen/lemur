@@ -34,6 +34,7 @@ from sqlalchemy_utils.types.arrow import ArrowType
 from werkzeug.utils import cached_property
 
 from lemur.common import defaults, utils, validators
+from lemur.common.utils import get_authority_key
 from lemur.constants import SUCCESS_METRIC_STATUS, FAILURE_METRIC_STATUS
 from lemur.database import db
 from lemur.domains.models import Domain
@@ -136,16 +137,16 @@ class Certificate(db.Model):
     private_key = Column(Vault)
 
     issuer = Column(String(128))
-    # cfssl: revoke
+    # begin of: cfssl - revoke
     # serial = Column(String(128))
     serial_number = Column(String(128))
     authority_key_identifier = Column(String(128))
     ca_label = Column(LargeBinary, nullable=True)
     reason = Column(Integer, default=0)
     expiry = Column(ArrowType, nullable=True)
-    revoked_at = Column(ArrowType, nullable=True)
+    revoked_at = Column(ArrowType, nullable=True, default=arrow.get("0001-01-01"))
     pem = Column(LargeBinary, nullable=True)
-    # cfssl: revoke
+    # end of: cfssl-revoke
 
     cn = Column(String(128))
     deleted = Column(Boolean, index=True, default=False)
@@ -160,7 +161,7 @@ class Certificate(db.Model):
     date_created = Column(ArrowType, PassiveDefault(func.now()), nullable=False)
 
     signing_algorithm = Column(String(128))
-    status = Column(String(128))
+    status = Column(String(128), default='good')
     bits = Column(Integer())
     san = Column(String(1024))  # TODO this should be migrated to boolean
 
@@ -265,6 +266,10 @@ class Certificate(db.Model):
         # Check integrity before saving anything into the database.
         # For user-facing API calls, validation should also be done in schema validators.
         self.check_integrity()
+
+        # begin of: cfssl
+        self.authority_key_identifier = get_authority_key(self.body)
+        # end of cfssl
 
     def check_integrity(self):
         """

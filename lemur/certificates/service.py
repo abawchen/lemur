@@ -296,9 +296,12 @@ def create(**kwargs):
 
     cert.authority = kwargs["authority"]
 
-    # begin of: cfssl
+    # XXX: Set not_before and not_after correctly
     cert.not_before = kwargs["validity_start"]
     cert.not_after = kwargs["validity_end"]
+
+    # begin of: cfssl
+    cert.expiry = cert.not_after
     # end of: cfssl
 
     database.commit()
