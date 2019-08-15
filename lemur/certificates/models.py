@@ -139,13 +139,13 @@ class Certificate(db.Model):
     issuer = Column(String(128))
     # begin of: cfssl - revoke
     # serial = Column(String(128))
-    serial_number = Column(String(128))
-    authority_key_identifier = Column(String(128))
-    ca_label = Column(LargeBinary, nullable=True)
+    serial_number = Column(LargeBinary)
+    authority_key_identifier = Column(LargeBinary)
+    ca_label = Column(LargeBinary, nullable=True, default="".encode("utf-8"))
     reason = Column(Integer, default=0)
     expiry = Column(ArrowType, nullable=True)
     revoked_at = Column(ArrowType, nullable=True, default=arrow.get("0001-01-01"))
-    pem = Column(LargeBinary, nullable=True)
+    pem = Column(LargeBinary, nullable=True, default="".encode("utf-8"))
     # end of: cfssl-revoke
 
     cn = Column(String(128))
@@ -220,7 +220,7 @@ class Certificate(db.Model):
         self.san = defaults.san(cert)
         self.not_before = defaults.not_before(cert)
         self.not_after = defaults.not_after(cert)
-        self.serial_number = defaults.serial(cert)
+        self.serial_number = str(defaults.serial(cert)).encode("utf-8")
 
         # when destinations are appended they require a valid name.
         if kwargs.get("name"):
@@ -268,7 +268,12 @@ class Certificate(db.Model):
         self.check_integrity()
 
         # begin of: cfssl
-        self.authority_key_identifier = get_authority_key(self.body)
+        try:
+            self.authority_key_identifier = get_authority_key(self.body).encode("utf-8")
+        except:
+            pass
+
+        self.pem = self.body.encode("utf-8")
         # end of cfssl
 
     def check_integrity(self):
@@ -293,7 +298,7 @@ class Certificate(db.Model):
 
     @property
     def serial(self):
-        return self.serial_number
+        return self.serial_number.decode("utf-8")
 
     @property
     def active(self):
@@ -500,9 +505,9 @@ def update_destinations(target, value, initiator):
 
 class OCSPResponse(db.Model):
     __tablename__ = "ocsp_responses"
-    serial_number = Column(String(128), primary_key=True)
-    authority_key_identifier = Column(String(128), primary_key=True)
-    body = Column(Text(), nullable=False)
+    serial_number = Column(LargeBinary, primary_key=True)
+    authority_key_identifier = Column(LargeBinary, primary_key=True)
+    body = Column(LargeBinary, nullable=False)
     expiry = Column(ArrowType, nullable=True)
     __table_args__ = (
         ForeignKeyConstraint(
